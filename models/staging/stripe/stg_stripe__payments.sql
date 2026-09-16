@@ -1,12 +1,23 @@
+with raw as (
 
-select
-    ID as payment_id,
-    ORDERID as order_id,
-    PAYMENTMETHOD as payment_method,
-    STATUS as status,
+    select * from {{ source('stripe', 'payments') }}
 
-    -- amount is stored in cents, convert to dollars
-    AMOUNT / 100 as amount,
-    CREATED as created_at
+),
 
-from {{ source('stripe', 'payments') }}
+transformed as (
+
+    select 
+
+        id as payment_id,
+        orderid as order_id,
+        paymentmethod as payment_method,
+        status as payment_status,
+        round(amount/100.0,2) as payment_amount,
+        created as payment_created_at
+
+    from raw
+
+)
+
+select * from transformed
+
