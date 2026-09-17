@@ -4,11 +4,7 @@ with customers as (
 ),
 
 orders as (
-    select * from {{ ref('stg_jaffle_shop__orders') }}
-),
-
-payments as (
-    select * from {{ ref('stg_stripe__payments') }}
+    select * from {{ ref('int_orders') }}
 ),
 
 -- Marts 
@@ -21,18 +17,8 @@ customer_order_history as (
         customers.surname,
         customers.givenname,
         min(order_date) as first_order_date,
-        min(
-            case 
-                when orders.order_status not in ('returned','return_pending') 
-                then order_date 
-            end
-            ) as first_non_returned_order_date,
-        max(
-            case 
-                when orders.order_status not in ('returned','return_pending') 
-                then order_date 
-            end
-            ) as most_recent_non_returned_order_date,
+        min( valid_order_date ) as first_non_returned_order_date,
+        max( valid_order_date ) as most_recent_non_returned_order_date,
 
         coalesce(
                 max(
@@ -42,25 +28,25 @@ customer_order_history as (
 
         coalesce(count(
                         case 
-                            when orders.order_status != 'returned' 
+                            when orders.valid_order_date is not null 
                             then 1 
                         end
                     ),0) as non_returned_order_count,
         sum(
             case 
-                when orders.order_status not in ('returned','return_pending') 
-                then c.payment_amount else 0 
+                when orders.valid_order_date is not null
+                then orders.order_value_dollars else 0 
                 end
             ) as total_lifetime_value,
         sum(
             case 
-                when orders.order_status not in ('returned','return_pending') 
-                then c.payment_amount else 0 
+                when orders.valid_order_date is not null 
+                then orders.order_value_dollars else 0 
                 end
             ) /
             nullif(count(
                 case 
-                    when orders.order_status not in ('returned','return_pending') 
+                    when orders.valid_order_date is not null 
                     then 1 
                 end
                 ),0
@@ -72,11 +58,6 @@ customer_order_history as (
     join  customers
 
     on orders.customer_id = customers.customer_id
-
-    left outer join payments c
-    on orders.order_id = c.order_id
-
-    where orders.order_status not in ('pending') and c.payment_status != 'fail'
 
     group by customers.customer_id, customers.full_name, customers.surname, customers.givenname
 
@@ -94,9 +75,9 @@ final as (
         first_order_date, 
         order_count,
         total_lifetime_value,
-        payments.payment_amount as order_value_dollars, -- pay attention here while auditing
+        orders.order_value_dollars, -- pay attention here while auditing
         orders.order_status,
-        payments.payment_status
+        orders.payment_status
 
     from orders
 
@@ -105,11 +86,6 @@ final as (
 
     join  customer_order_history
     on orders.customer_id = customer_order_history.customer_id
-
-    left outer join payments 
-    on orders.order_id = payments.order_id 
-
-    where payments.payment_status != 'fail'
 
 )
 
